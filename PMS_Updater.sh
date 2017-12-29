@@ -5,9 +5,9 @@ URLPLEXPASS="https://plex.tv/api/downloads/1.json?channel=plexpass"
 DOWNLOADPATH="/tmp"
 LOGPATH="/tmp"
 LOGFILE="PMS_Updater.log"
-PMSPARENTPATH="/usr/pbi/plexmediaserver-amd64/share"
-PMSLIVEFOLDER="plexmediaserver"
-PMSBAKFOLDER="plexmediaserver.bak"
+PMSPARENTPATH="/usr/local/share"
+PMSLIVEFOLDER="plexmediaserver_plexpass"
+PMSBAKFOLDER="plexmediaserver_plexpass.bak"
 CERTFILE="/usr/local/share/certs/ca-root-nss.crt"
 AUTOUPDATE=0
 FORCEUPDATE=0
@@ -15,6 +15,10 @@ VERBOSE=0
 REMOVE=0
 LOGGING=1
 PLEXPASS=1
+PMSSERVICE="plexmediaserver_plexpass"
+PMSUSER="plex"
+PMSGROUP="plex"
+PMSCONFIG="/usr/local/plex/"
 
 # Initialize CURRENTVER to the script max so if reading the current version fails
 # for some reason we don't blindly clobber things
@@ -43,10 +47,12 @@ OPTIONS:
              formatted like this:
                user={Your Username Here}
                password={Your Password Here}
+   -s      Service name of Plex Media Server            
    -l      Local file to install instead of latest from Plex.tv
    -d      download folder (default /tmp) Ignored if -l is used
    -a      Auto Update to newer version
    -f      Force Update even if version is not newer
+   -i      Installs Plex Media Server if not yet installed.
    -r      Remove update packages older than current version
              Done before any update actions are taken.
    -v      Verbose
@@ -180,7 +186,7 @@ applyUpdate()
     rm -rf $PMSPARENTPATH/$PMSBAKFOLDER 2>&1 | LogMsg
     echo Done. | LogMsg -f
     echo Stopping Plex Media Server .....| LogMsg -n
-    service plexmediaserver stop 2>&1 | LogMsg
+    service $PMSSERVICE stop 2>&1 | LogMsg
     echo Done. | LogMsg -f
     echo Moving current Plex Media Server to backup location .....| LogMsg -n
     mv $PMSPARENTPATH/$PMSLIVEFOLDER/ $PMSPARENTPATH/$PMSBAKFOLDER/ 2>&1 | LogMsg
@@ -189,7 +195,7 @@ applyUpdate()
     mkdir $PMSPARENTPATH/$PMSLIVEFOLDER/ 2>&1 | LogMsg
     tar -xj --strip-components 1 --file $LOCALINSTALLFILE --directory $PMSPARENTPATH/$PMSLIVEFOLDER/ 2>&1 | LogMsg -f
     if [ $? -ne 0 ]; then {
-        echo Error exctracting $LOCALINSTALLFILE. Rolling back to previous version. | LogMsg -f
+        echo Error extracting $LOCALINSTALLFILE. Rolling back to previous version. | LogMsg -f
         rm -rf $PMSPARENTPATH/$PMSLIVEFOLDER/ 2>&1 | LogMsg -f
         mv $PMSPARENTPATH/$PMSBAKFOLDER/ $PMSPARENTPATH/$PMSLIVEFOLDER/ 2>&1 | LogMsg -f
     } else {
@@ -198,11 +204,36 @@ applyUpdate()
     ln -s $PMSPARENTPATH/$PMSLIVEFOLDER/Plex\ Media\ Server $PMSPARENTPATH/$PMSLIVEFOLDER/Plex_Media_Server 2>&1 | LogMsg
     ln -s $PMSPARENTPATH/$PMSLIVEFOLDER/libpython2.7.so.1 $PMSPARENTPATH/$PMSLIVEFOLDER/libpython2.7.so 2>&1 | LogMsg
     echo Starting Plex Media Server .....| LogMsg -n
-    service plexmediaserver start
+    service $PMSSERVICE start
     echo Done. | LogMsg -f
 }
 
-while getopts x."u:p:c:l:d:afvrn" OPTION
+installPlex()
+{
+    echo Extracting $LOCALINSTALLFILE .....| LogMsg -n
+    mkdir $PMSPARENTPATH/$PMSLIVEFOLDER/ 2>&1 | LogMsg
+    tar -xj --strip-components 1 --file $LOCALINSTALLFILE --directory $PMSPARENTPATH/$PMSLIVEFOLDER/ 2>&1 | LogMsg -f
+    if [ $? -ne 0 ]; then {
+        echo Error extracting $LOCALINSTALLFILE. Removing Plex. | LogMsg -f
+        rm -rf $PMSPARENTPATH/$PMSLIVEFOLDER/ 2>&1 | LogMsg -f
+    } else {
+        echo Done. | LogMsg -f
+    } fi
+    ln -s $PMSPARENTPATH/$PMSLIVEFOLDER/Plex\ Media\ Server $PMSPARENTPATH/$PMSLIVEFOLDER/Plex_Media_Server 2>&1 | LogMsg
+    ln -s $PMSPARENTPATH/$PMSLIVEFOLDER/libpython2.7.so.1 $PMSPARENTPATH/$PMSLIVEFOLDER/libpython2.7.so 2>&1 | LogMsg
+    mkdir $PMSCONFIG
+    wget https://raw.githubusercontent.com/sloanja/PMS_Updater/master/plexmediaserver_plexpass --directory-prefix=/usr/local/etc/rc.d
+    chown -R $PMSUSER:$PMSGROUP $PMSCONFIG
+    sysrc plexmediaserver_plexpass_user=$PMSUSER
+    sysrc plexmediaserver_plexpass_group=$PMSGROUP
+    sysrc plexmediaserver_plexpass_support_path=$PMSCONFIG
+    sysrc plexmediaserver_plexpass_enable=YES
+    echo Starting Plex Media Server .....| LogMsg -n
+    service $PMSSERVICE start
+    echo Done. | LogMsg -f
+}
+
+while getopts x."u:p:c:l:d:s:aifvrn" OPTION
 do
      case $OPTION in
          u) USERNAME=$OPTARG ;;
@@ -210,7 +241,9 @@ do
          c) USERPASSFILE=$OPTARG ;;
          l) LOCALINSTALLFILE=$OPTARG ;;
          d) DOWNLOADPATH=$OPTARG ;;
+         s) PMSSERVICE=$OPTARG ;;
          a) AUTOUPDATE=1 ;;
+         i) INSTALLPLEX=1 ;;
          f) FORCEUPDATE=1 ;;
          v) VERBOSE=1 ;;
          r) REMOVE=1 ;;
